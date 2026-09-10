@@ -241,6 +241,10 @@ Optional automatic start at Windows logon:
 
 The scanner log is `data/windows-scanner.log`; Docker logs are available with `docker compose logs -f --tail=200 scale`.
 
+While the service is waiting, the container log remains quiet. It reports the
+BLE source once at startup and prints only a real Garmin synchronization or an
+actionable error; repeated upstream “no new data” polling messages are hidden.
+
 ---
 
 # 6. First real test

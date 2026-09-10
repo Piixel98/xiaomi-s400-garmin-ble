@@ -69,6 +69,10 @@ docker compose ps
 docker compose logs --tail=100 scale
 ```
 
+The Windows container waits silently for a new row in the shared history. Its
+log shows the BLE source at startup and only prints a Garmin synchronization
+result or an actionable error; the upstream idle polling banners are filtered.
+
 The USB dongle must remain owned by Windows in this mode. `usbipd-win` can attach USB devices to WSL2, but attaching this dongle to WSL removes it from Windows and does not provide the `hci0` controller required by the Linux scanner on this host. Docker's USB/IP procedure is a separate Hyper-V-oriented path and is not required for the native Windows scanner.
 
 ## Data flow and privacy

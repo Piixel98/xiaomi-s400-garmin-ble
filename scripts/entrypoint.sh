@@ -128,14 +128,12 @@ sync_garmin_tokens() {
   fi
 }
 
-# Keep the backup mirrored into persistent storage while the upstream loop runs.
+# Keep OAuth tokens synchronized while the upstream loop runs. The history file
+# is already a symlink to persistent storage, so copying it every few seconds
+# would needlessly replace the file and look like a new measurement.
 mirror_history() {
   while true; do
     sleep 15
-    if [[ -f "$APP/user/miscale_backup.csv" ]]; then
-      cp "$APP/user/miscale_backup.csv" "$PERSIST/history/miscale_backup.csv.tmp"
-      mv "$PERSIST/history/miscale_backup.csv.tmp" "$PERSIST/history/miscale_backup.csv"
-    fi
     sync_garmin_tokens
   done
 }
@@ -151,19 +149,49 @@ trap cleanup EXIT TERM INT
 
 echo ""
 echo "Xiaomi S400 BLE -> Garmin service started"
-echo "Scale MAC: ${S400_MAC^^}"
-echo "Adapter: hci${HCI_INDEX}"
-echo "Mode: continuous BLE scanning; no 15-minute cloud polling"
+if [[ "${BLE_SOURCE:-linux}" == "windows" ]]; then
+  echo "BLE source: Windows native scanner; waiting for new measurements"
+else
+  echo "BLE source: Linux BlueZ hci${HCI_INDEX}; connected and scanning"
+fi
 echo ""
 
 if [[ "${BLE_SOURCE:-linux}" == "windows" ]]; then
   # With native Windows BLE, import_data.sh must not run its Linux scanner.
-  # Run one upload pass at a time and sleep so the container does not spin at
-  # 100% CPU while waiting for the next Windows measurement.
+  # Wait silently for the Windows companion to append a new raw measurement,
+  # then expose only the useful synchronization result in container logs.
+  history_signature() {
+    stat -c '%s:%Y' "$PERSIST/history/miscale_backup.csv" 2>/dev/null || true
+  }
+
+  report_import() {
+    local import_log=/dev/shm/import_data.log
+    local output
+
+    if grep -Eq 'Calculating data from import|Upload to Garmin Connect' "$import_log"; then
+      output=$(grep -E 'Calculating data from import|Upload to Garmin Connect' "$import_log" || true)
+      printf '%s\n' "$output"
+    elif grep -Eq 'ERROR|Error|failed|Failed|Exception|Traceback|authentication|Authentication' "$import_log"; then
+      echo "ERROR: Garmin synchronization failed; diagnostic follows:"
+      grep -E 'ERROR|Error|failed|Failed|Exception|Traceback|authentication|Authentication' "$import_log" | tail -n 20
+    fi
+  }
+
+  last_history_signature=$(history_signature)
+  if grep -q '^to_import;' "$PERSIST/history/miscale_backup.csv" 2>/dev/null; then
+    # Retry a pending measurement left by a previous interrupted run.
+    last_history_signature=''
+  fi
+
   while true; do
-    "$APP/import_data.sh" 2>&1 | sed '/BLE adapter is OFF or incorrect configuration/d' || true
-    sync_garmin_tokens
-    sleep 5
+    current_history_signature=$(history_signature)
+    if [[ -n "$current_history_signature" && "$current_history_signature" != "$last_history_signature" ]]; then
+      last_history_signature="$current_history_signature"
+      "$APP/import_data.sh" > /dev/shm/import_data.log 2>&1 || true
+      report_import
+      sync_garmin_tokens
+    fi
+    sleep 1
   done
 else
   exec "$APP/import_data.sh" -l
