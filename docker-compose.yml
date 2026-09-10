@@ -1,0 +1,26 @@
+services:
+  scale:
+    build:
+      context: .
+      args:
+        EXPORT2GARMIN_COMMIT: ${EXPORT2GARMIN_COMMIT:-3761f07b3efb328ac02f7d576c83985cecb93001}
+    container_name: xiaomi-s400-garmin
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      TZ: ${TZ:-Europe/Madrid}
+      # On Windows, BLE is captured by the native Windows scanner and the
+      # resulting S400 record is consumed from the shared history file.
+      BLE_SOURCE: ${BLE_SOURCE:-linux}
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      # Host BlueZ D-Bus socket. No TCP/HTTP port is exposed.
+      - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
+      # Persist Garmin OAuth tokens + scale history/config.
+      - ./data:/persist
+    security_opt:
+      - no-new-privileges:true
